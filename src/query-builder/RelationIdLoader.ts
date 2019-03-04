@@ -1,6 +1,9 @@
 import {Connection, ObjectLiteral, SelectQueryBuilder} from "../";
 import {ColumnMetadata} from "../metadata/ColumnMetadata";
 import {RelationMetadata} from "../metadata/RelationMetadata";
+import {OracleDriver} from "../driver/oracle/OracleDriver";
+import {PostgresDriver} from "../driver/postgres/PostgresDriver";
+import {abbreviate} from "../util/StringUtils";
 
 /**
  * Loads relation ids for the given entities.
@@ -94,7 +97,7 @@ export class RelationIdLoader {
 
             const entityRelationIds = relationIds.filter(relationId => {
                 return inverseColumns.every(column => {
-                    return column.compareEntityValue(entity, relationId[column.entityMetadata.name + "_" + column.propertyAliasName]);
+                    return column.compareEntityValue(entity, relationId[this.buildColumnAlias(column.entityMetadata.name, column.propertyAliasName)]);
                 });
             });
             if (!entityRelationIds.length)
@@ -103,7 +106,7 @@ export class RelationIdLoader {
             relatedEntities.forEach(relatedEntity => {
                 entityRelationIds.forEach(relationId => {
                     const relatedEntityMatched = columns.every(column => {
-                        return column.compareEntityValue(relatedEntity, relationId[column.entityMetadata.name + "_" + relation.propertyPath.replace(".", "_") + "_" + column.propertyPath.replace(".", "_")]);
+                        return column.compareEntityValue(relatedEntity, relationId[this.buildColumnAlias(column.entityMetadata.name, relation.propertyPath.replace(".", "_") + "_" + column.propertyPath.replace(".", "_"))]);
                     });
                     if (relatedEntityMatched) {
                         if (isMany) {
@@ -174,11 +177,11 @@ export class RelationIdLoader {
 
         // select all columns from junction table
         columns.forEach(column => {
-            const columnName = column.referencedColumn!.entityMetadata.name + "_" + column.referencedColumn!.propertyPath.replace(".", "_");
+            const columnName = this.buildColumnAlias(column.referencedColumn!.entityMetadata.name, column.referencedColumn!.propertyPath.replace(".", "_"));
             qb.addSelect(mainAlias + "." + column.propertyPath, columnName);
         });
         inverseColumns.forEach(column => {
-            const columnName = column.referencedColumn!.entityMetadata.name + "_" + relation.propertyPath.replace(".", "_") + "_" + column.referencedColumn!.propertyPath.replace(".", "_");
+            const columnName = this.buildColumnAlias(column.referencedColumn!.entityMetadata.name, relation.propertyPath.replace(".", "_") + "_" + column.referencedColumn!.propertyPath.replace(".", "_"));
             qb.addSelect(mainAlias + "." + column.propertyPath, columnName);
         });
 
@@ -272,7 +275,7 @@ export class RelationIdLoader {
             entities.forEach(entity => {
                 let relationIdMap: ObjectLiteral = {};
                 relation.entityMetadata.primaryColumns.forEach(primaryColumn => {
-                    const key = primaryColumn.entityMetadata.name + "_" + primaryColumn.propertyPath.replace(".", "_");
+                    const key = this.buildColumnAlias(primaryColumn.entityMetadata.name, primaryColumn.propertyPath.replace(".", "_"));
                     relationIdMap[key] = primaryColumn.getEntityValue(entity);
                 });
 
@@ -284,7 +287,7 @@ export class RelationIdLoader {
                             return;
 
                         if (entityColumnValue === relatedEntityColumnValue) {
-                            const key = joinColumn.referencedColumn!.entityMetadata.name + "_" + relation.propertyPath.replace(".", "_") + "_" + joinColumn.referencedColumn!.propertyPath.replace(".", "_");
+                            const key = this.buildColumnAlias(joinColumn.referencedColumn!.entityMetadata.name, relation.propertyPath.replace(".", "_") + "_" + joinColumn.referencedColumn!.propertyPath.replace(".", "_"));
                             relationIdMap[key] = relatedEntityColumnValue;
                         }
                     });
@@ -302,11 +305,11 @@ export class RelationIdLoader {
         // select all columns we need
         const qb = this.connection.createQueryBuilder();
         relation.entityMetadata.primaryColumns.forEach(primaryColumn => {
-            const columnName = primaryColumn.entityMetadata.name + "_" + primaryColumn.propertyPath.replace(".", "_");
+            const columnName = this.buildColumnAlias(primaryColumn.entityMetadata.name, primaryColumn.propertyPath.replace(".", "_"));
             qb.addSelect(mainAlias + "." + primaryColumn.propertyPath, columnName);
         });
         relation.joinColumns.forEach(column => {
-            const columnName = column.referencedColumn!.entityMetadata.name + "_" + relation.propertyPath.replace(".", "_") + "_" + column.referencedColumn!.propertyPath.replace(".", "_");
+            const columnName = this.buildColumnAlias(column.referencedColumn!.entityMetadata.name, relation.propertyPath.replace(".", "_") + "_" + column.referencedColumn!.propertyPath.replace(".", "_"));
             qb.addSelect(mainAlias + "." + column.propertyPath, columnName);
         });
 
@@ -351,12 +354,13 @@ export class RelationIdLoader {
                 return relation.joinColumns.indexOf(column) !== -1;
             });
             if (sameReferencedColumns) {
+                const that = this;
                 return Promise.resolve(entities.map(entity => {
                     const result: ObjectLiteral = {};
                     relation.joinColumns.forEach(function (joinColumn) {
                         const value = joinColumn.referencedColumn!.getEntityValue(entity);
-                        const joinColumnName = joinColumn.referencedColumn!.entityMetadata.name + "_" + joinColumn.referencedColumn!.propertyPath.replace(".", "_");
-                        const primaryColumnName = joinColumn.entityMetadata.name + "_" + relation.inverseRelation!.propertyPath.replace(".", "_") + "_" + joinColumn.propertyPath.replace(".", "_");
+                        const joinColumnName = that.buildColumnAlias(joinColumn.referencedColumn!.entityMetadata.name, joinColumn.referencedColumn!.propertyPath.replace(".", "_"));
+                        const primaryColumnName = that.buildColumnAlias(joinColumn.entityMetadata.name, relation.inverseRelation!.propertyPath.replace(".", "_") + "_" + joinColumn.propertyPath.replace(".", "_"));
                         result[joinColumnName] = value;
                         result[primaryColumnName] = value;
                     });
@@ -370,11 +374,11 @@ export class RelationIdLoader {
         // select all columns we need
         const qb = this.connection.createQueryBuilder();
         relation.entityMetadata.primaryColumns.forEach(primaryColumn => {
-            const columnName = primaryColumn.entityMetadata.name + "_" + relation.inverseRelation!.propertyPath.replace(".", "_") + "_" + primaryColumn.propertyPath.replace(".", "_");
+            const columnName = this.buildColumnAlias(primaryColumn.entityMetadata.name, relation.inverseRelation!.propertyPath.replace(".", "_") + "_" + primaryColumn.propertyPath.replace(".", "_"));
             qb.addSelect(mainAlias + "." + primaryColumn.propertyPath, columnName);
         });
         relation.joinColumns.forEach(column => {
-            const columnName = column.referencedColumn!.entityMetadata.name + "_" + column.referencedColumn!.propertyPath.replace(".", "_");
+            const columnName = this.buildColumnAlias(column.referencedColumn!.entityMetadata.name, column.referencedColumn!.propertyPath.replace(".", "_"));
             qb.addSelect(mainAlias + "." + column.propertyPath, columnName);
         });
 
@@ -405,6 +409,19 @@ export class RelationIdLoader {
         return qb.from(relation.entityMetadata.target, mainAlias)
             .where(condition)
             .getRawMany();
+    }
+
+    /**
+     * Builds column alias from given alias name and column name,
+     * If alias length is more than 29, abbreviates column name.
+     */
+    protected buildColumnAlias(aliasName: string, columnName: string): string {
+        const columnAliasName = aliasName + "_" + columnName;
+        if ((columnAliasName.length > 29 && this.connection.driver instanceof OracleDriver) ||
+            (columnAliasName.length > 63 && this.connection.driver instanceof PostgresDriver))
+            return aliasName  + "_" + abbreviate(columnName, 2);
+
+        return columnAliasName;
     }
 
 }
