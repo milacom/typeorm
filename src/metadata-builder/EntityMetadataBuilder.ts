@@ -350,10 +350,6 @@ export class EntityMetadataBuilder {
             .filterColumns(entityMetadata.inheritanceTree)
             .map(args => {
 
-                // for single table children we reuse columns created for their parents
-                if (entityMetadata.tableType === "entity-child")
-                    return entityMetadata.parentEntityMetadata.ownColumns.find(column => column.propertyName === args.propertyName)!;
-
                 const column = new ColumnMetadata({ connection: this.connection, entityMetadata, args });
 
                 // if single table inheritance used, we need to mark all inherit table columns as nullable
